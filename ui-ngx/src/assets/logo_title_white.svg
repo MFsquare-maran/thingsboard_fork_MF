@@ -29,7 +29,7 @@
     <color-profile
        name="Agfa-:-Swop-Standard"
        xlink:href="../../../../../../WINDOWS/system32/spool/drivers/color/RSWOP.icm"
-       id="color-profile22288" />
+       id="color-profile19024" />
     <linearGradient
        id="linearGradient899"
        inkscape:swatch="solid">
@@ -197,7 +197,7 @@
      id="text1064"><tspan
        sodipodi:role="line"
        id="tspan1062"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:167.782px;font-family:Rubik;-inkscape-font-specification:Rubik;stroke-width:1.25837;fill:#e7e7e7;fill-opacity:1"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:167.782px;font-family:'HP Simplified Hans';-inkscape-font-specification:'HP Simplified Hans';fill:#e7e7e7;fill-opacity:1;stroke-width:1.25837"
        x="356.29056"
        y="207.86649">IOT.MFsquare</tspan></text>
   <text
