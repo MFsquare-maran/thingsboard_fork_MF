@@ -15,26 +15,7 @@
     limitations under the License.
 
 -->
-<style>
-  body {
-    margin: 0;
-    padding: 0;
-    background-image: url('background_2.jpg');
-    background-size: cover;
-    background-position: center;
-  }
-
-  .tb-login-content {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-  }
- /background_2.jpg
-
-</style>
-
-<div class="tb-login-content mat-app-background tb-dark">
+<div class="tb-login-content mat-app-background tb-dark" fxFlex fxLayoutAlign="center center">
   <mat-card appearance="raised" style="max-height: 80vh; overflow-y: auto;">
     <mat-card-content>
       <form class="tb-login-form" [formGroup]="loginFormGroup" (ngSubmit)="login()">
