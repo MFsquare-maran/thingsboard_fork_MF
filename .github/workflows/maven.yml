@@ -30,16 +30,22 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: maven
+          cache: 'maven'
 
       - name: Capture JDK 17 path
         run: |
           echo "JDK17_HOME=$JAVA_HOME" >> $GITHUB_ENV
 
-      - name: Install Maven (reliable installer)
-        uses: shivammathur/setup-maven@v2
-        with:
-          maven-version: '3.8.8'
+      - name: Ensure Maven is available
+        run: |
+          # If mvn is not on the runner, install via apt. Most runners already include maven.
+          if ! command -v mvn >/dev/null; then
+            echo "Maven not found, installing via apt-get"
+            sudo apt-get update
+            sudo apt-get install -y maven
+          else
+            echo "Maven already installed"
+          fi
 
       - name: Verify Maven is installed
         run: mvn -v
