@@ -1,4 +1,4 @@
-name: ThingsBoard CI (Maven + Docker TAR)
+name: ThingsBoard CI (Maven JDK17 + Gradle JDK11 + Docker TAR)
 
 on:
   push:
@@ -15,31 +15,71 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      # Install JDK 11 (for Gradle in packaging/js)
+      - name: Set up JDK 11 (Gradle)
+        id: jdk11
+        uses: actions/setup-java@v4
+        with:
+          java-version: "11"
+          distribution: "temurin"
+
+      - name: Capture JDK 11 path
+        run: |
+          echo "JDK11_HOME=$JAVA_HOME" >> $GITHUB_ENV
+          echo "JDK11_HOME=$JAVA_HOME"
+
+      # Install JDK 17 (for Maven build)
+      - name: Set up JDK 17 (Maven)
+        id: jdk17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
           cache: maven
 
+      - name: Capture JDK 17 path
+        run: |
+          echo "JDK17_HOME=$JAVA_HOME" >> $GITHUB_ENV
+          echo "JDK17_HOME=$JAVA_HOME"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Show versions
         run: |
-          java -version
+          echo "JDK11_HOME=$JDK11_HOME"
+          echo "JDK17_HOME=$JDK17_HOME"
+          "$JDK11_HOME/bin/java" -version
+          "$JDK17_HOME/bin/java" -version
           mvn -version
           docker version
 
-      # Build ThingsBoard from source (skip failing license check)
-      - name: Build ThingsBoard (skip tests, skip license check)
+      # Force Gradle inside packaging/js to use JDK 11 (fix for major version 61)
+      - name: Configure Gradle Java home for packaging/js
         run: |
+          mkdir -p packaging/js
+          cat > packaging/js/gradle.properties <<EOF
+          org.gradle.java.home=${JDK11_HOME}
+          EOF
+          echo "Created packaging/js/gradle.properties:"
+          cat packaging/js/gradle.properties
+
+      # Build ThingsBoard (skip license check to avoid your earlier failure)
+      - name: Build ThingsBoard (skip tests, skip license check) using JDK 17
+        env:
+          JAVA_HOME: ${{ env.JDK17_HOME }}
+          PATH: ${{ env.JDK17_HOME }}/bin:${{ env.PATH }}
+        run: |
+          java -version
           mvn -B -T 0.8C clean install \
             -DskipTests \
             -Dlicense.skip=true
 
-      # Build docker images as in ThingsBoard docs
-      - name: Build ThingsBoard Docker images (skip license check)
+      # Build Docker images
+      - name: Build ThingsBoard Docker images (skip license check) using JDK 17
+        env:
+          JAVA_HOME: ${{ env.JDK17_HOME }}
+          PATH: ${{ env.JDK17_HOME }}/bin:${{ env.PATH }}
         run: |
           mvn -B -T 0.8C clean install \
             -DskipTests \
@@ -50,13 +90,11 @@ jobs:
         run: |
           docker images | head -n 200
 
-      # Save all locally built thingsboard/* images to tar (robust against changing tags)
-      - name: Save ThingsBoard images to TAR
+      - name: Save ThingsBoard images (thingsboard/*) to TAR
         run: |
           set -euo pipefail
           mkdir -p out
 
-          # Collect all images whose repository starts with "thingsboard/"
           mapfile -t IMAGES < <(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E '^thingsboard/' || true)
 
           if [ "${#IMAGES[@]}" -eq 0 ]; then
@@ -77,10 +115,9 @@ jobs:
           path: out/thingsboard-images.tar
           retention-days: 7
 
-      # Optional: also export PostgreSQL image as TAR (official image)
+      # Optional: PostgreSQL image TAR
       - name: Pull PostgreSQL image
-        run: |
-          docker pull postgres:16
+        run: docker pull postgres:16
 
       - name: Save PostgreSQL image to TAR
         run: |
