@@ -36,9 +36,9 @@ jobs:
         run: |
           echo "JDK17_HOME=$JAVA_HOME" >> $GITHUB_ENV
 
+# Ensure Maven is installed before Maven-dependent steps
       - name: Ensure Maven is available
         run: |
-          # If mvn is not on the runner, install via apt. Most runners already include maven.
           if ! command -v mvn >/dev/null; then
             echo "Maven not found, installing via apt-get"
             sudo apt-get update
@@ -46,7 +46,7 @@ jobs:
           else
             echo "Maven already installed"
           fi
-
+      
       - name: Verify Maven is installed
         run: mvn -v
 
