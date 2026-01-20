@@ -1,10 +1,6 @@
-name: ThingsBoard CI (Maven JDK17 + Gradle JDK11 + Docker TAR)
+name: Build ThingsBoard + Docker TARs (PostgreSQL)
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -15,91 +11,93 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 11 (Gradle)
+      # ---------- Java 11 for Gradle (JS build) ----------
+      - name: Set up JDK 11 (for Gradle/JS)
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "11"
-          distribution: "temurin"
 
-      - name: Capture JDK 11 path
+      - name: Configure Gradle to use JDK 11
+        shell: bash
         run: |
-          echo "JDK11_HOME=$JAVA_HOME" >> $GITHUB_ENV
+          cat > gradle.properties <<'EOF'
+          org.gradle.java.home=${JAVA_HOME}
+          EOF
+          echo "JAVA_HOME for Gradle is: $JAVA_HOME"
+          test -f gradle.properties && cat gradle.properties
 
-      - name: Set up JDK 17 (Maven)
+      # ---------- Java 17 for Maven (server build) ----------
+      - name: Set up JDK 17 (for Maven)
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "17"
-          distribution: "temurin"
-          cache: maven
 
-      - name: Capture JDK 17 path
-        run: |
-          echo "JDK17_HOME=$JAVA_HOME" >> $GITHUB_ENV
-
+      # Maven is NOT guaranteed to be installed => install it explicitly
       - name: Install Maven
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y maven
-       
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Configure Gradle Java home for packaging/js
-        run: |
-          mkdir -p packaging/js
-          cat > packaging/js/gradle.properties <<EOF
-          org.gradle.java.home=${JDK11_HOME}
-          EOF
-          cat packaging/js/gradle.properties
-
-      - name: Build ThingsBoard (skip tests, skip license check) using JDK 17
-        env:
-          JAVA_HOME: ${{ env.JDK17_HOME }}
-          PATH: ${{ env.JDK17_HOME }}/bin:${{ env.PATH }}
-        run: |
+          which mvn
+          mvn -version
           java -version
+
+      # ---------- Build ThingsBoard ----------
+      # Note: -Dlicense.skip=true avoids the license check failure you hit earlier
+      - name: Build ThingsBoard (Maven)
+        shell: bash
+        run: |
           mvn -B -T 0.8C clean install -DskipTests -Dlicense.skip=true
 
-      - name: Build ThingsBoard Docker images (skip license check) using JDK 17
-        env:
-          JAVA_HOME: ${{ env.JDK17_HOME }}
-          PATH: ${{ env.JDK17_HOME }}/bin:${{ env.PATH }}
+      # ---------- Build Docker images and export as TAR ----------
+      # Adjust paths/targets if your ThingsBoard fork differs.
+      - name: Build Docker images (PostgreSQL)
+        shell: bash
         run: |
-          mvn -B -T 0.8C clean install -DskipTests -Ddockerfile.skip=false -Dlicense.skip=true
+          # Common ThingsBoard docker build location is "docker/" in repo root
+          # This builds the PostgreSQL images (typically tb-postgres and tb-node)
+          cd docker
+          chmod +x *.sh || true
 
-      - name: List Docker images
-        run: docker images | head -n 200
-
-      - name: Save ThingsBoard images (thingsboard/*) to TAR
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          mapfile -t IMAGES < <(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E '^thingsboard/' || true)
-          if [ "${#IMAGES[@]}" -eq 0 ]; then
-            docker images
+          # Try the standard build script naming used by ThingsBoard
+          if [ -f "./build.sh" ]; then
+            ./build.sh postgresql
+          elif [ -f "./docker-build.sh" ]; then
+            ./docker-build.sh postgresql
+          else
+            echo "No known docker build script found in ./docker"
+            ls -la
             exit 1
           fi
-          docker save "${IMAGES[@]}" -o out/thingsboard-images.tar
 
-      - name: Upload ThingsBoard image TAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: thingsboard-images-tar
-          path: out/thingsboard-images.tar
-          retention-days: 7
-
-      - name: Pull PostgreSQL image
-        run: docker pull postgres:16
-
-      - name: Save PostgreSQL image to TAR
+      - name: Save Docker images to TAR
+        shell: bash
         run: |
-          mkdir -p out
-          docker save postgres:16 -o out/postgres-16.tar
+          mkdir -p artifacts
 
-      - name: Upload PostgreSQL image TAR
+          # These are the most common image names; adapt if your build tags differ.
+          # We'll save any matching thingsboard/tb-* images to be safe.
+          docker images
+
+          IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '(^thingsboard/|/tb-)' || true)
+          if [ -z "$IMAGES" ]; then
+            echo "No ThingsBoard images found to save. Check docker build output / tags."
+            exit 1
+          fi
+
+          echo "$IMAGES" | while read -r img; do
+            safe_name=$(echo "$img" | tr '/:' '__')
+            echo "Saving $img -> artifacts/${safe_name}.tar"
+            docker save -o "artifacts/${safe_name}.tar" "$img"
+          done
+
+          ls -lh artifacts
+
+      - name: Upload Docker TAR artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: postgres-16-tar
-          path: out/postgres-16.tar
-          retention-days: 7
+          name: thingsboard-docker-tars
+          path: artifacts/*.tar
+          if-no-files-found: error
