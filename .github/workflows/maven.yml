@@ -1,35 +1,57 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-name: Java CI with Maven
+name: Build ThingsBoard (Maven + Docker TAR)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
-  build:
-
+  build-thingsboard:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
-    - name: Update dependency graph
-      uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Optional aber empfehlenswert, macht Builds reproduzierbarer/schneller
+      - name: Show versions
+        run: |
+          java -version
+          mvn -version
+          docker version
+
+      # ThingsBoard build + Docker images build (entspricht Doku)
+      - name: Build ThingsBoard + build Docker images
+        run: |
+          mvn -T 0.8C clean install -DskipTests -Ddockerfile.skip=false
+
+      # Image-Namen/Tags können je nach ThingsBoard-Version/Modul variieren.
+      # Dieser Step listet Images, damit du siehst, wie das gebaute Image wirklich heißt.
+      - name: List local Docker images
+        run: docker images | head -n 200
+
+      # >>> HIER musst du den IMAGE NAMEN anpassen <<<
+      # Beispiel: thingsboard/tb-ce:latest (nur Beispiel!)
+      - name: Save ThingsBoard image to TAR
+        run: |
+          IMAGE="thingsboard/tb-ce:latest"
+          docker save "$IMAGE" -o thingsboard-image.tar
+
+      - name: Upload TAR as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thingsboard-docker-image-tar
+          path: thingsboard-image.tar
+          retention-days: 7
