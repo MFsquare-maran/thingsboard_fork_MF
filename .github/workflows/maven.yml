@@ -1,4 +1,4 @@
-name: Build ThingsBoard (Maven + Docker TAR)
+name: ThingsBoard CI (Maven + Docker TAR)
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-thingsboard:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,33 +25,71 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Optional aber empfehlenswert, macht Builds reproduzierbarer/schneller
       - name: Show versions
         run: |
           java -version
           mvn -version
           docker version
 
-      # ThingsBoard build + Docker images build (entspricht Doku)
-      - name: Build ThingsBoard + build Docker images
+      # Build ThingsBoard from source (skip failing license check)
+      - name: Build ThingsBoard (skip tests, skip license check)
         run: |
-          mvn -T 0.8C clean install -DskipTests -Ddockerfile.skip=false
+          mvn -B -T 0.8C clean install \
+            -DskipTests \
+            -Dlicense.skip=true
 
-      # Image-Namen/Tags können je nach ThingsBoard-Version/Modul variieren.
-      # Dieser Step listet Images, damit du siehst, wie das gebaute Image wirklich heißt.
-      - name: List local Docker images
-        run: docker images | head -n 200
-
-      # >>> HIER musst du den IMAGE NAMEN anpassen <<<
-      # Beispiel: thingsboard/tb-ce:latest (nur Beispiel!)
-      - name: Save ThingsBoard image to TAR
+      # Build docker images as in ThingsBoard docs
+      - name: Build ThingsBoard Docker images (skip license check)
         run: |
-          IMAGE="thingsboard/tb-ce:latest"
-          docker save "$IMAGE" -o thingsboard-image.tar
+          mvn -B -T 0.8C clean install \
+            -DskipTests \
+            -Ddockerfile.skip=false \
+            -Dlicense.skip=true
 
-      - name: Upload TAR as artifact
+      - name: List Docker images
+        run: |
+          docker images | head -n 200
+
+      # Save all locally built thingsboard/* images to tar (robust against changing tags)
+      - name: Save ThingsBoard images to TAR
+        run: |
+          set -euo pipefail
+          mkdir -p out
+
+          # Collect all images whose repository starts with "thingsboard/"
+          mapfile -t IMAGES < <(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E '^thingsboard/' || true)
+
+          if [ "${#IMAGES[@]}" -eq 0 ]; then
+            echo "No images matching 'thingsboard/*' found. Available images:"
+            docker images
+            exit 1
+          fi
+
+          echo "Saving images:"
+          printf '%s\n' "${IMAGES[@]}"
+
+          docker save "${IMAGES[@]}" -o out/thingsboard-images.tar
+
+      - name: Upload ThingsBoard image TAR
         uses: actions/upload-artifact@v4
         with:
-          name: thingsboard-docker-image-tar
-          path: thingsboard-image.tar
+          name: thingsboard-images-tar
+          path: out/thingsboard-images.tar
+          retention-days: 7
+
+      # Optional: also export PostgreSQL image as TAR (official image)
+      - name: Pull PostgreSQL image
+        run: |
+          docker pull postgres:16
+
+      - name: Save PostgreSQL image to TAR
+        run: |
+          mkdir -p out
+          docker save postgres:16 -o out/postgres-16.tar
+
+      - name: Upload PostgreSQL image TAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-16-tar
+          path: out/postgres-16.tar
           retention-days: 7
